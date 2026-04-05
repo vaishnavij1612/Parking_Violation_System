@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Parking Violations Dashboard</title>
+    <style>
+        :root {
+            --primary-color: #2c3e50;
+            --secondary-color: #34495e;
+            --bg-color: #f8f9fa;
+            --text-color: #333;
+            --border-color: #ddd;
+            --low-color: #27ae60;
+            --medium-color: #f39c12;
+            --high-color: #e74c3c;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        h1 {
+            color: var(--primary-color);
+            margin-bottom: 30px;
+            font-weight: 600;
+        }
+
+        .container {
+            width: 100%;
+            max-width: 1200px;
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+        }
+
+        th, td {
+            text-align: left;
+            padding: 15px;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        th {
+            background-color: var(--secondary-color);
+            color: white;
+            font-weight: 500;
+            text-transform: uppercase;
+            font-size: 0.9rem;
+        }
+
+        tr:hover {
+            background-color: #f1f1f1;
+        }
+
+        .severity {
+            font-weight: bold;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 0.85rem;
+            color: white;
+            display: inline-block;
+        }
+
+        .severity-low { background-color: var(--low-color); }
+        .severity-medium { background-color: var(--medium-color); }
+        .severity-high { background-color: var(--high-color); }
+        .severity-default { background-color: #95a5a6; }
+
+        .violation-img {
+            max-width: 150px;
+            height: auto;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: transform 0.2s;
+        }
+
+        .violation-img:hover {
+            transform: scale(1.05);
+        }
+
+        .no-data {
+            text-align: center;
+            padding: 40px;
+            color: #777;
+            font-style: italic;
+        }
+
+        @media (max-width: 768px) {
+            th, td {
+                padding: 10px;
+                font-size: 0.85rem;
+            }
+            .violation-img {
+                max-width: 100px;
+            }
+        }
+    </style>
+</head>
+<body>
+
+    <h1>Parking Violations Dashboard</h1>
+
+    <div class="container">
+        {% if violations %}
+        <table>
+            <thead>
+                <tr>
+                    <th>Plate</th>
+                    <th>Time</th>
+                    <th>Dwell Time (s)</th>
+                    <th>Fine</th>
+                    <th>Severity</th>
+                    <th>Image</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for v in violations %}
+                <tr>
+                    <td><strong>{{ v.plate }}</strong></td>
+                    <td>{{ v.time }}</td>
+                    <td>{{ v.dwell_time }}</td>
+                    <td>₹{{ v.fine }}</td>
+                    <td>
+                        <span class="severity severity-{{ v.severity|lower if v.severity else 'default' }}">
+                            {{ v.severity if v.severity else 'N/A' }}
+                        </span>
+                    </td>
+                    <td>
+                        <a href="{{ url_for('static', filename=v.image_path) }}" target="_blank">
+                            <img src="{{ url_for('static', filename=v.image_path) }}" alt="Violation" class="violation-img">
+                        </a>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <div class="no-data">
+            No violation records found in the database.
+        </div>
+        {% endif %}
+    </div>
+
+</body>
+</html>
