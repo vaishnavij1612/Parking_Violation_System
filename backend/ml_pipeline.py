@@ -1,22 +1,31 @@
 from datetime import datetime
 
-from ml_models import (
+from backend.ml_models import (
     confidence_gate,
     detect_anomaly,
-    predict_fine
+    predict_fine,
+    zone_risk_prediction
 )
 
 
-def evaluate_violation(plate,confidence,dwell_time,plate_freq,zone):
+def evaluate_violation(
+        plate,
+        confidence,
+        dwell_time,
+        plate_freq,
+        zone
+):
 
     if not confidence_gate(confidence):
 
         return {
-            "status":"low_confidence"
+            "status": "low_confidence"
         }
 
-    hour = datetime.now().hour
-    day = datetime.now().weekday()
+    now = datetime.now()
+
+    hour = now.hour
+    day = now.weekday()
 
     anomaly = detect_anomaly(dwell_time)
 
@@ -24,8 +33,11 @@ def evaluate_violation(plate,confidence,dwell_time,plate_freq,zone):
         plate_freq,
         hour,
         day,
-        zone
+        zone,
+        dwell_time
     )
+
+    zone_risk = zone_risk_prediction(hour, zone)
 
     severity_score = 0
 
@@ -33,29 +45,33 @@ def evaluate_violation(plate,confidence,dwell_time,plate_freq,zone):
         severity_score += 2
 
     if plate_freq > 1:
-        severity_score += 3
+        severity_score += 2
 
-    if hour > 17:
+    if zone_risk == "HIGH":
         severity_score += 1
 
 
-    if severity_score >= 5:
-        level = "HIGH"
-    elif severity_score >= 3:
-        level = "MEDIUM"
+    if severity_score <= 1:
+        severity = "LOW"
+
+    elif severity_score <= 3:
+        severity = "MEDIUM"
+
     else:
-        level = "LOW"
+        severity = "HIGH"
 
 
     return {
 
-        "status":"violation",
+        "status": "violation",
 
-        "plate":plate,
+        "plate": plate,
 
-        "fine":fine,
+        "fine": fine,
 
-        "anomaly":anomaly,
+        "anomaly": anomaly,
 
-        "severity":level
+        "zone_risk": zone_risk,
+
+        "severity": severity
     }

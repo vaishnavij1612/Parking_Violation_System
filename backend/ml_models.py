@@ -4,29 +4,74 @@ from sklearn.ensemble import RandomForestClassifier
 from sklearn.ensemble import IsolationForest
 
 
-# -------------------------------
-# Generate synthetic dataset
-# -------------------------------
+# -----------------------------
+# Zone definitions
+# -----------------------------
 
-def generate_dataset():
+ZONE_TYPES = {
+    1: "Residential",
+    2: "Market",
+    3: "Transit"
+}
+
+
+# -----------------------------
+# Generate semi-realistic dataset
+# -----------------------------
+
+def generate_dataset(n_samples=500):
 
     rows = []
 
-    for i in range(300):
+    for _ in range(n_samples):
 
         plate_freq = np.random.randint(1,5)
         hour = np.random.randint(0,24)
         day = np.random.randint(0,7)
-        zone = np.random.randint(1,3)
+        zone = np.random.choice([1,2,3])
 
-        if plate_freq == 1:
+        # realistic dwell patterns
+
+        if zone == 1:
+            dwell_time = np.random.randint(2,6)
+
+        elif zone == 2:
+            dwell_time = np.random.randint(5,10)
+
+        else:
+            dwell_time = np.random.randint(4,8)
+
+        violation_score = 0
+
+        if plate_freq > 1:
+            violation_score += 2
+
+        if hour >= 17:
+            violation_score += 1
+
+        if zone == 2:
+            violation_score += 1
+
+        if dwell_time > 8:
+            violation_score += 1
+
+        if violation_score <= 1:
             fine = 100
-        elif plate_freq == 2:
+
+        elif violation_score <= 3:
             fine = 300
+
         else:
             fine = 500
 
-        rows.append([plate_freq,hour,day,zone,fine])
+        rows.append([
+            plate_freq,
+            hour,
+            day,
+            zone,
+            dwell_time,
+            fine
+        ])
 
     df = pd.DataFrame(
         rows,
@@ -35,6 +80,7 @@ def generate_dataset():
             "hour",
             "day",
             "zone",
+            "dwell_time",
             "fine"
         ]
     )
@@ -42,15 +88,22 @@ def generate_dataset():
     return df
 
 
-# -------------------------------
-# Train RandomForest
-# -------------------------------
+# -----------------------------
+# Train RandomForest model
+# -----------------------------
 
-def train_repeat_model():
+def train_fine_model():
 
     df = generate_dataset()
 
-    X = df[["plate_freq","hour","day","zone"]]
+    X = df[[
+        "plate_freq",
+        "hour",
+        "day",
+        "zone",
+        "dwell_time"
+    ]]
+
     y = df["fine"]
 
     model = RandomForestClassifier(
@@ -58,81 +111,92 @@ def train_repeat_model():
         random_state=42
     )
 
-    model.fit(X,y)
+    model.fit(X, y)
 
     return model
 
 
-# -------------------------------
-# Train IsolationForest
-# -------------------------------
+# -----------------------------
+# Train anomaly detector
+# -----------------------------
 
 def train_anomaly_model():
 
-    dwell_times = [[2],[3],[4],[5],[6],[7]]
+    normal_dwell_times = [[2],[3],[4],[5],[6],[7]]
 
     model = IsolationForest(
         contamination=0.15,
         random_state=42
     )
 
-    model.fit(dwell_times)
+    model.fit(normal_dwell_times)
 
     return model
 
 
-# -------------------------------
+# -----------------------------
 # Initialize models
-# -------------------------------
+# -----------------------------
 
-repeat_model = train_repeat_model()
-
+fine_model = train_fine_model()
 anomaly_model = train_anomaly_model()
 
 
-# -------------------------------
-# Confidence Gate
-# -------------------------------
+# -----------------------------
+# ML Functions
+# -----------------------------
 
 def confidence_gate(confidence):
-
-    """
-    Reject plates with low ALPR confidence
-    """
 
     return confidence >= 0.85
 
 
-# -------------------------------
-# Anomaly Detection
-# -------------------------------
-
 def detect_anomaly(dwell_time):
-
-    """
-    Detect abnormal parking time
-    """
 
     result = anomaly_model.predict([[dwell_time]])
 
-    if result[0] == -1:
-        return True
-
-    return False
+    return bool(result[0] == -1)
 
 
-# -------------------------------
-# Fine Prediction
-# -------------------------------
+def predict_fine(
+        plate_freq,
+        hour,
+        day,
+        zone,
+        dwell_time
+):
 
-def predict_fine(plate_freq, hour, day, zone):
+    features = [[
+        plate_freq,
+        hour,
+        day,
+        zone,
+        dwell_time
+    ]]
 
-    """
-    Predict fine amount using RandomForest
-    """
+    fine = fine_model.predict(features)
 
-    features = [[plate_freq, hour, day, zone]]
+    return int(fine[0])
 
-    fine = repeat_model.predict(features)[0]
 
-    return int(fine)
+def zone_risk_prediction(hour, zone):
+
+    risk_score = 0
+
+    if hour >= 17:
+        risk_score += 2
+
+    if zone == 2:
+        risk_score += 2
+
+    if zone == 3:
+        risk_score += 1
+
+    if risk_score <= 1:
+        return "LOW"
+
+    elif risk_score <= 3:
+        return "MEDIUM"
+
+    else:
+        return "HIGH"
