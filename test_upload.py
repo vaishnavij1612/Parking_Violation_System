@@ -6,6 +6,10 @@ import os
 URL        = "http://127.0.0.1:5000/upload"
 IMAGE_FILE = "car.png"
 DWELL_TIME = "15"
+ZONE       = "2"  # 1=Residential, 2=Market, 3=Transit
+FREQUENCY  = "5"  # How many times this car has been seen
+
+
 
 
 def test_upload():
@@ -27,10 +31,13 @@ def test_upload():
         response = requests.post(
             URL,
             data=image_bytes,
-            headers={
+                headers={
                 "Content-Type": "application/octet-stream",
-                "Dwell-Time": DWELL_TIME
+                "Dwell-Time": DWELL_TIME,
+                "Zone": ZONE,
+                "Frequency": FREQUENCY
             }
+
         )
 
         # 4. Print the JSON response
