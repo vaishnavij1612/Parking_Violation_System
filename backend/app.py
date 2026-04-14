@@ -11,7 +11,6 @@ from flask import Flask, jsonify, request, render_template
 from alpr import recognize_plate, crop_number_plate
 from ml_pipeline import evaluate_violation
 from database import get_db_connection, insert_violation
-from notifier import send_telegram_notification
 
 import cv2
 
@@ -110,10 +109,6 @@ def upload_image():
             conn.commit()
         finally:
             conn.close()
-
-        # -------- Notification --------
-        if result["fine"] > 0:
-            send_telegram_notification(plate, result["fine"], result["severity"])
 
         return jsonify({
             "status": "success",
