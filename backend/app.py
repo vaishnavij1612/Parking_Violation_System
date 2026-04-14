@@ -3,7 +3,6 @@ import sys
 import time
 from datetime import datetime
 
-# Add project root to sys.path so 'backend' is importable as a package
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
@@ -14,85 +13,61 @@ from ml_pipeline import evaluate_violation
 from database import get_db_connection, insert_violation
 from notifier import send_telegram_notification
 
-
-# Flask app with template/static folders relative to project root
 TEMPLATE_DIR = os.path.join(PROJECT_ROOT, 'templates')
 STATIC_DIR   = os.path.join(PROJECT_ROOT, 'static')
 
-app = Flask(
-    __name__,
-    template_folder=TEMPLATE_DIR,
-    static_folder=STATIC_DIR
-)
+app = Flask(__name__, template_folder=TEMPLATE_DIR, static_folder=STATIC_DIR)
 
 UPLOAD_FOLDER = os.path.join(STATIC_DIR, 'images')
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
-@app.route('/', methods=['GET'])
+
+# 🔥 NEW FUNCTION
+def get_last_detection_time(conn, plate):
+    row = conn.execute(
+        "SELECT timestamp FROM violations WHERE plate = ? ORDER BY id DESC LIMIT 1",
+        (plate,)
+    ).fetchone()
+
+    if row:
+        return row["timestamp"]
+    return None
+
+
+@app.route('/')
 def index():
-    return jsonify({
-        "status": "success",
-        "message": "Server Running"
-    }), 200
+    return jsonify({"status": "success", "message": "Server Running"}), 200
 
 
 @app.route('/upload', methods=['POST'])
 def upload_image():
     try:
-        # Read and validate dwell time
-        dwell_time_str = request.headers.get('Dwell-Time')
-        if not dwell_time_str:
-            return jsonify({
-                "status": "error",
-                "message": "Missing 'Dwell-Time' header"
-            }), 400
-            
-        try:
-            dwell_time = int(dwell_time_str)
-        except ValueError:
-            return jsonify({
-                "status": "error",
-                "message": "Invalid 'Dwell-Time', must be an integer"
-            }), 400
-            
-        print(f"[INFO] Dwell Time recorded: {dwell_time} seconds")
+        dwell_time = int(request.headers.get('Dwell-Time', 0))
 
         image_bytes = request.data
         if not image_bytes:
-            return jsonify({
-                "status": "error",
-                "message": "No image data provided"
-            }), 400
+            return jsonify({"status": "error"}), 400
 
-        # Generate filename
         timestamp = int(time.time() * 1000)
         filename = f"image_{timestamp}.jpg"
         filepath = os.path.join(UPLOAD_FOLDER, filename)
 
-        # Save image
         with open(filepath, 'wb') as f:
             f.write(image_bytes)
 
-        # Relative path (important for frontend later)
         relative_path = f"images/{filename}"
 
-        print(f"[INFO] Image saved at: {filepath}")
-
-        # ALPR Integration
+        # -------- ALPR --------
         plate, confidence = recognize_plate(filepath)
 
-        # Handle No Plate Detected
         if plate is None:
-            print(f"[WARNING] No plate detected for image: {filepath}")
             return jsonify({
                 "status": "error",
-                "message": "No license plate detected"
+                "plate_detected": False,
+                "trigger_buzzer": False
             }), 400
 
-        print(f"[INFO] Plate detected: {plate} | Confidence: {confidence}")
-
-        # ML Pipeline: confidence gate + anomaly detection + fine prediction
-        # Placeholder values for plate_freq and zone until real data is available
+        # -------- ML --------
         result = evaluate_violation(
             plate=plate,
             confidence=confidence,
@@ -102,34 +77,42 @@ def upload_image():
         )
 
         if result["status"] == "low_confidence":
-            print(f"[WARNING] Confidence gate failed for plate: {plate} (Confidence: {confidence})")
             return jsonify({
                 "status": "error",
-                "message": "Confidence gate failed — plate reading not reliable",
-                "plate": plate,
-                "confidence": confidence
+                "plate_detected": False,
+                "trigger_buzzer": False
             }), 400
 
-        is_anomaly = result["anomaly"]
         fine_amount = result["fine"]
-        severity    = result["severity"]
+        severity = result["severity"]
+        is_anomaly = result["anomaly"]
 
-        print(f"[INFO] Anomaly: {is_anomaly} | Fine: {fine_amount} | Severity: {severity}")
-
-        # Insert Violation Record into Database
+        # 🔥 CHECK SAME VEHICLE (30 sec)
         conn = get_db_connection()
-        try:
-            insert_violation(conn, plate, timestamp, dwell_time, fine_amount, severity, relative_path)
-            conn.commit()
-        finally:
-            conn.close()
+        last_time = get_last_detection_time(conn, plate)
 
-        # Send Telegram notification before returning response
+        trigger_buzzer = False
+
+        if last_time:
+            time_diff = (timestamp - last_time) / 1000
+
+            if time_diff <= 30:
+                trigger_buzzer = True
+                print("[ALERT] Same vehicle within 30 sec!")
+
+        # -------- DB INSERT --------
+        insert_violation(conn, plate, timestamp, dwell_time, fine_amount, severity, relative_path)
+        conn.commit()
+        conn.close()
+
+        # -------- TELEGRAM --------
         if fine_amount > 0:
             send_telegram_notification(plate, fine_amount, severity)
 
         return jsonify({
             "status": "success",
+            "plate_detected": True,
+            "trigger_buzzer": trigger_buzzer,
             "plate": plate,
             "confidence": confidence,
             "dwell_time": dwell_time,
@@ -139,41 +122,32 @@ def upload_image():
         }), 200
 
     except Exception as e:
-        print(f"[ERROR] {str(e)}")
-        return jsonify({
-            "status": "error",
-            "message": str(e)
-        }), 500
+        return jsonify({"status": "error", "message": str(e)}), 500
 
 
-@app.route('/dashboard', methods=['GET'])
+@app.route('/dashboard')
 def dashboard():
-    """Dashboard page showing only the LATEST violation for each unique plate."""
     conn = get_db_connection()
-    try:
-        # Query: Find the record with the maximum ID for each unique plate
-        # This keeps the "Keep it once" requirement satisfied for the same car.
-        rows = conn.execute('''
-            SELECT plate, timestamp, dwell_time, fine, severity, image_path 
-            FROM violations 
-            WHERE id IN (SELECT MAX(id) FROM violations GROUP BY plate) 
-            ORDER BY timestamp DESC
-        ''').fetchall()
 
-        # Convert rows to dicts and format the timestamp
-        violations = []
-        for row in rows:
-            violations.append({
-                "plate":      row["plate"],
-                "time":       datetime.fromtimestamp(row["timestamp"] / 1000).strftime("%Y-%m-%d %H:%M:%S"),
-                "dwell_time": row["dwell_time"],
-                "fine":       row["fine"],
-                "severity":   row["severity"],
-                "image_path": row["image_path"]
-            })
-    finally:
-        conn.close()
+    rows = conn.execute('''
+        SELECT plate, timestamp, dwell_time, fine, severity, image_path 
+        FROM violations 
+        WHERE id IN (SELECT MAX(id) FROM violations GROUP BY plate) 
+        ORDER BY timestamp DESC
+    ''').fetchall()
 
+    violations = []
+    for row in rows:
+        violations.append({
+            "plate": row["plate"],
+            "time": datetime.fromtimestamp(row["timestamp"] / 1000).strftime("%Y-%m-%d %H:%M:%S"),
+            "dwell_time": row["dwell_time"],
+            "fine": row["fine"],
+            "severity": row["severity"],
+            "image_path": row["image_path"]
+        })
+
+    conn.close()
     return render_template('index.html', violations=violations)
 
 
