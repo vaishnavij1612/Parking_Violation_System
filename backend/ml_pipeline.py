@@ -1,42 +1,77 @@
 from datetime import datetime
-import re
-from backend.ml_models import confidence_gate, detect_anomaly, predict_fine, zone_risk_prediction
+
+from backend.ml_models import (
+    confidence_gate,
+    detect_anomaly,
+    predict_fine,
+    zone_risk_prediction
+)
 
 
-def is_valid_plate(text):
-    if not text:
-        return False
-    text = text.replace(" ", "").replace("-", "").upper()
-    return re.match(r'^[A-Z]{2}[0-9]{1,2}[A-Z]{1,2}[0-9]{3,4}$', text)
-
-
-def evaluate_violation(plate, confidence, dwell_time, plate_freq, zone):
-
-    print("OCR:", plate)
-
-    if not is_valid_plate(plate):
-        return {"status": "invalid_plate"}
+def evaluate_violation(
+        plate,
+        confidence,
+        dwell_time,
+        plate_freq,
+        zone
+):
 
     if not confidence_gate(confidence):
-        return {"status": "low_confidence"}
+
+        return {
+            "status": "low_confidence"
+        }
 
     now = datetime.now()
+
+    hour = now.hour
+    day = now.weekday()
+
     anomaly = detect_anomaly(dwell_time)
 
-    fine = predict_fine(plate_freq, now.hour, now.weekday(), zone, dwell_time)
-    zone_risk = zone_risk_prediction(now.hour, zone)
+    fine = predict_fine(
+        plate_freq,
+        hour,
+        day,
+        zone,
+        dwell_time
+    )
 
-    severity = "LOW"
-    if anomaly or plate_freq > 1:
+    zone_risk = zone_risk_prediction(hour, zone)
+
+    severity_score = 0
+
+    if anomaly:
+        severity_score += 2
+
+    if plate_freq > 1:
+        severity_score += 2
+
+    if zone_risk == "HIGH":
+        severity_score += 1
+
+
+    if severity_score <= 1:
+        severity = "LOW"
+
+    elif severity_score <= 3:
         severity = "MEDIUM"
-    if anomaly and zone_risk == "HIGH":
+
+    else:
         severity = "HIGH"
 
+
     return {
+
         "status": "violation",
+
         "plate": plate,
+
         "fine": fine,
+
         "anomaly": anomaly,
+
         "zone_risk": zone_risk,
+
         "severity": severity
     }
