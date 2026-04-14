@@ -12,6 +12,7 @@ from flask import Flask, jsonify, request, render_template
 from alpr import recognize_plate
 from ml_pipeline import evaluate_violation
 from database import get_db_connection, insert_violation
+from notifier import send_telegram_notification
 
 
 # Flask app with template/static folders relative to project root
@@ -122,6 +123,10 @@ def upload_image():
             conn.commit()
         finally:
             conn.close()
+
+        # Send Telegram notification before returning response
+        if fine_amount > 0:
+            send_telegram_notification(plate, fine_amount, severity)
 
         return jsonify({
             "status": "success",

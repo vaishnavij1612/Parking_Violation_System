@@ -4,7 +4,7 @@ import os
 
 # --- Configuration ---
 URL        = "http://127.0.0.1:5000/upload"
-IMAGE_FILE = "car.png"
+IMAGE_FILE = "car.jpeg"
 DWELL_TIME = "15"
 
 
