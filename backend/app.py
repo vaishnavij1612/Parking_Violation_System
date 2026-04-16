@@ -87,21 +87,22 @@ def upload_image():
         severity = result["severity"]
         is_anomaly = result["anomaly"]
 
-        # 🔥 CHECK SAME VEHICLE (30 sec)
-        conn = get_db_connection()
-        last_time = get_last_detection_time(conn, plate)
-
-        trigger_buzzer = False
-
-        if last_time:
-            time_diff = (timestamp - last_time) / 1000
-
-            if time_diff <= 30:
-                trigger_buzzer = True
-                print("[ALERT] Same vehicle within 30 sec!")
+        # 🔥 IMMEDIATE BUZZER (MAIN CHANGE)
+        trigger_buzzer = True
 
         # -------- DB INSERT --------
-        insert_violation(conn, plate, timestamp, dwell_time, fine_amount, severity, relative_path)
+        conn = get_db_connection()
+
+        insert_violation(
+            conn,
+            plate,
+            timestamp,
+            dwell_time,
+            fine_amount,
+            severity,
+            relative_path
+        )
+
         conn.commit()
         conn.close()
 
@@ -123,7 +124,6 @@ def upload_image():
 
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 500
-
 
 @app.route('/dashboard')
 def dashboard():
